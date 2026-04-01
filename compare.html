@@ -399,9 +399,7 @@
 </style>
 </head>
 <body>
-
 <h1>Diff Checker</h1>
-
 <div class="editor-row">
   <div class="editor-col">
     <div class="editor-header">
@@ -418,13 +416,61 @@
     <textarea id="textB" spellcheck="false" placeholder="Paste or type the modified text here…"></textarea>
   </div>
 </div>
-
 <div class="result-header">
   <h2>Comparison result</h2>
-  <div class="stats" id="stats"></div>
+  <div class="result-controls">
+    <div class="stats" id="stats"></div>
+    <div class="layout-toggle" id="layoutToggle">
+      <button class="btn-layout active" data-layout="vertical">Stacked</button>
+      <button class="btn-layout" data-layout="horizontal">Side by Side</button>
+    </div>
+  </div>
 </div>
-<div id="result"></div>
-
+<div class="diff-toolbar" id="diffToolbar">
+  <div class="nav-group">
+    <button class="btn-nav" id="btnPrev" title="Previous change (Shift+F7)">↑ Prev</button>
+    <button class="btn-nav" id="btnNext" title="Next change (F7)">↓ Next</button>
+    <span class="nav-counter" id="navCounter"></span>
+  </div>
+  <div class="nav-group">
+    <button class="btn-bulk" id="btnAllLeft">Accept All Original</button>
+    <button class="btn-bulk" id="btnAllRight">Accept All Modified</button>
+    <button class="btn-bulk" id="btnReset">Reset All</button>
+  </div>
+</div>
+<div class="result-container" id="resultContainer">
+  <div id="result"></div>
+  <div class="sbs-view" id="sbsView">
+    <div class="sbs-headers">
+      <div class="sbs-hdr">Comparison Result</div>
+      <div class="sbs-hdr">
+        <span>Merged Result</span>
+        <div class="sbs-merge-ctrl">
+          <span class="merge-status" id="sbsMergeStatus"></span>
+          <button class="btn-copy" id="sbsCopy">Copy</button>
+        </div>
+      </div>
+    </div>
+    <div class="sbs-scroll" id="sbsScroll">
+      <div class="sbs-grid" id="sbsGrid"></div>
+    </div>
+  </div>
+  <div class="merged-section" id="mergedSection">
+    <div class="merged-header">
+      <h2>Merged Result</h2>
+      <div class="merge-info">
+        <span class="merge-status" id="mergeStatus"></span>
+        <button class="btn-copy" id="btnCopy">Copy Result</button>
+      </div>
+    </div>
+    <div id="mergedResult"></div>
+  </div>
+</div>
+<div class="nav-float" id="navFloat">
+  <button class="btn-nav" id="btnPrevFloat" title="Previous change (Shift+F7)">↑ Prev</button>
+  <button class="btn-nav" id="btnNextFloat" title="Next change (F7)">↓ Next</button>
+  <span class="nav-counter" id="navCounterFloat"></span>
+</div>
 <script>
 (function () {
   var textA   = document.getElementById('textA');
