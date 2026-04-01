@@ -479,62 +479,76 @@
   var statsEl = document.getElementById('stats');
   var btnA    = document.getElementById('btnJsonA');
   var btnB    = document.getElementById('btnJsonB');
-
+  var toolbar       = document.getElementById('diffToolbar');
+  var navCounter    = document.getElementById('navCounter');
+  var btnPrev       = document.getElementById('btnPrev');
+  var btnNext       = document.getElementById('btnNext');
+  var btnAllLeft    = document.getElementById('btnAllLeft');
+  var btnAllRight   = document.getElementById('btnAllRight');
+  var btnReset      = document.getElementById('btnReset');
+  var mergedSection    = document.getElementById('mergedSection');
+  var mergedResult     = document.getElementById('mergedResult');
+  var mergeStatusEl    = document.getElementById('mergeStatus');
+  var btnCopy          = document.getElementById('btnCopy');
+  var navFloat         = document.getElementById('navFloat');
+  var navCounterFloat  = document.getElementById('navCounterFloat');
+  var btnPrevFloat     = document.getElementById('btnPrevFloat');
+  var btnNextFloat     = document.getElementById('btnNextFloat');
+  var layoutToggle     = document.getElementById('layoutToggle');
+  var resultContainer  = document.getElementById('resultContainer');
+  var sbsView          = document.getElementById('sbsView');
+  var sbsGrid          = document.getElementById('sbsGrid');
+  var sbsScroll        = document.getElementById('sbsScroll');
+  var sbsMergeStatusEl = document.getElementById('sbsMergeStatus');
+  var sbsCopyBtn       = document.getElementById('sbsCopy');
+  var chunks = [];
+  var diffChunkIndices = [];
+  var activeChunkPos = -1;
+  var sbsMergedText = '';
   var timer = null;
   function schedule() {
     clearTimeout(timer);
     timer = setTimeout(compare, 150);
   }
-
   textA.addEventListener('input', schedule);
   textB.addEventListener('input', schedule);
-
   function looksLikeJSON(str) {
     var s = str.trim();
     if (!s) return false;
     if (s[0] !== '{' && s[0] !== '[') return false;
     try { JSON.parse(s); return true; } catch (e) { return false; }
   }
-
   function formatJSON(el) {
     try {
       el.value = JSON.stringify(JSON.parse(el.value.trim()), null, 2);
       schedule();
     } catch (e) { /* ignore */ }
   }
-
   btnA.addEventListener('click', function () { formatJSON(textA); });
   btnB.addEventListener('click', function () { formatJSON(textB); });
-
   function refreshJSONButtons() {
     btnA.classList.toggle('visible', looksLikeJSON(textA.value));
     btnB.classList.toggle('visible', looksLikeJSON(textB.value));
   }
-
+  /* ─── LCS line diff ─── */
   function diffLines(a, b) {
     var n = a.length, m = b.length;
-
     var prefix = 0;
     while (prefix < n && prefix < m && a[prefix] === b[prefix]) prefix++;
-
     var suffix = 0;
     while (suffix < n - prefix && suffix < m - prefix &&
            a[n - 1 - suffix] === b[m - 1 - suffix]) suffix++;
-
     var as = a.slice(prefix, n - suffix);
     var bs = b.slice(prefix, m - suffix);
     var sn = as.length, sm = bs.length;
-
     var dp = new Array(sn + 1);
     for (var i = 0; i <= sn; i++) { dp[i] = new Array(sm + 1); dp[i][0] = 0; }
     for (var j = 0; j <= sm; j++) dp[0][j] = 0;
-
     for (var i = 1; i <= sn; i++)
       for (var j = 1; j <= sm; j++)
         dp[i][j] = as[i - 1] === bs[j - 1]
           ? dp[i - 1][j - 1] + 1
           : (dp[i - 1][j] > dp[i][j - 1] ? dp[i - 1][j] : dp[i][j - 1]);
-
     var ops = [];
     var i = sn, j = sm;
     while (i > 0 || j > 0) {
@@ -550,30 +564,24 @@
       }
     }
     ops.reverse();
-
     var pre = [];
     for (var p = 0; p < prefix; p++) pre.push({ type: 'equal', a: p, b: p });
-
     var suf = [];
     for (var s = 0; s < suffix; s++) suf.push({ type: 'equal', a: n - suffix + s, b: m - suffix + s });
-
     return pre.concat(ops, suf);
   }
-
+  /* ─── Token-level diff ─── */
   function diffTokens(s1, s2) {
     var w1 = tokenize(s1), w2 = tokenize(s2);
     var n = w1.length, m = w2.length;
-
     var dp = new Array(n + 1);
     for (var i = 0; i <= n; i++) { dp[i] = new Array(m + 1); dp[i][0] = 0; }
     for (var j = 0; j <= m; j++) dp[0][j] = 0;
-
     for (var i = 1; i <= n; i++)
       for (var j = 1; j <= m; j++)
         dp[i][j] = w1[i - 1] === w2[j - 1]
           ? dp[i - 1][j - 1] + 1
           : (dp[i - 1][j] > dp[i][j - 1] ? dp[i - 1][j] : dp[i][j - 1]);
-
     var out = [];
     var i = n, j = m;
     while (i > 0 || j > 0) {
@@ -591,70 +599,9 @@
     out.reverse();
     return out;
   }
-
   function tokenize(s) { return s.match(/\w+|[^\w\s]|\s+/g) || []; }
-
   function esc(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  function compare() {
-    refreshJSONButtons();
-
-    var a = textA.value, b = textB.value;
-    if (!a && !b) { result.innerHTML = ''; statsEl.innerHTML = ''; return; }
-
-    var linesA = a.split('\n');
-    var linesB = b.split('\n');
-    var ops = diffLines(linesA, linesB);
-
-    var html = '';
-    var cntCommon = 0, cntAdded = 0, cntRemoved = 0;
-    var i = 0;
-
-    while (i < ops.length) {
-      if (ops[i].type === 'equal') {
-        html += '<span class="line">' + esc(linesA[ops[i].a]) + '</span>';
-        cntCommon++;
-        i++;
-      } else {
-        var dels = [], ins = [];
-        while (i < ops.length && ops[i].type !== 'equal') {
-          if (ops[i].type === 'delete') dels.push(ops[i].a);
-          else ins.push(ops[i].b);
-          i++;
-        }
-
-        var paired = Math.min(dels.length, ins.length);
-        for (var p = 0; p < paired; p++) {
-          var tokens = diffTokens(linesA[dels[p]], linesB[ins[p]]);
-          var lh = '';
-          for (var t = 0; t < tokens.length; t++) {
-            if (tokens[t].type === 'equal')    lh += esc(tokens[t].text);
-            else if (tokens[t].type === 'del') lh += '<span class="token-del">' + esc(tokens[t].text) + '</span>';
-            else                               lh += '<span class="token-add">' + esc(tokens[t].text) + '</span>';
-          }
-          html += '<span class="line line-mod">' + lh + '</span>';
-          cntRemoved++;
-          cntAdded++;
-        }
-
-        for (var d = paired; d < dels.length; d++) {
-          html += '<span class="line line-del"><span class="token-del">' + esc(linesA[dels[d]]) + '</span></span>';
-          cntRemoved++;
-        }
-        for (var k = paired; k < ins.length; k++) {
-          html += '<span class="line line-add"><span class="token-add">' + esc(linesB[ins[k]]) + '</span></span>';
-          cntAdded++;
-        }
-      }
-    }
-
-    result.innerHTML = html;
-    statsEl.innerHTML =
-      '<span class="common">Common: ' + cntCommon + '</span>' +
-      '<span class="added">Added: ' + cntAdded + '</span>' +
-      '<span class="removed">Removed: ' + cntRemoved + '</span>';
   }
 })();
 </script>
