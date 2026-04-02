@@ -650,7 +650,7 @@
     render();
     updateToolbar();
   }
-  function render() { renderDiff(); }
+  function render() { renderDiff(); updateMergedResult(); }
   /* ─── Render stacked diff view ─── */
   function renderDiff() {
     var html = '';
@@ -768,6 +768,80 @@
   function nextChunk() { goToChunk(activeChunkPos < 0 ? 0 : (activeChunkPos + 1) % diffChunkIndices.length); }
   btnPrev.addEventListener('click', prevChunk);
   btnNext.addEventListener('click', nextChunk);
+  /* ─── Accept / undo ─── */
+  function acceptChunk(pos, side) {
+    chunks[diffChunkIndices[pos]].resolved = side;
+    render();
+  }
+  function undoChunk(pos) {
+    chunks[diffChunkIndices[pos]].resolved = null;
+    render();
+  }
+  function acceptAll(side) {
+    for (var i = 0; i < diffChunkIndices.length; i++)
+      chunks[diffChunkIndices[i]].resolved = side;
+    render();
+  }
+  function resetAll() {
+    for (var i = 0; i < diffChunkIndices.length; i++)
+      chunks[diffChunkIndices[i]].resolved = null;
+    activeChunkPos = -1;
+    render();
+    updateToolbar();
+  }
+  function handleAction(e, container) {
+    var btn = e.target;
+    while (btn && btn !== container && !btn.hasAttribute('data-action'))
+      btn = btn.parentElement;
+    if (!btn || !btn.hasAttribute('data-action')) return;
+    var chunkEl = btn;
+    while (chunkEl && !chunkEl.hasAttribute('data-chunk'))
+      chunkEl = chunkEl.parentElement;
+    if (!chunkEl) return;
+    var pos = parseInt(chunkEl.getAttribute('data-chunk'), 10);
+    var action = btn.getAttribute('data-action');
+    if (action === 'undo') undoChunk(pos);
+    else acceptChunk(pos, action);
+  }
+  result.addEventListener('click', function (e) { handleAction(e, result); });
+  sbsGrid.addEventListener('click', function (e) { handleAction(e, sbsGrid); });
+  btnAllLeft.addEventListener('click', function () { acceptAll('left'); });
+  btnAllRight.addEventListener('click', function () { acceptAll('right'); });
+  btnReset.addEventListener('click', function () { resetAll(); });
+  /* ─── Stacked merged result ─── */
+  function updateMergedResult() {
+    if (!diffChunkIndices.length) return;
+    var lines = [];
+    var resolved = 0;
+    for (var c = 0; c < chunks.length; c++) {
+      var chunk = chunks[c];
+      if (chunk.type === 'equal') {
+        for (var l = 0; l < chunk.lines.length; l++) lines.push(chunk.lines[l]);
+      } else if (chunk.resolved === 'right') {
+        for (var l = 0; l < chunk.modifiedLines.length; l++) lines.push(chunk.modifiedLines[l]);
+        resolved++;
+      } else if (chunk.resolved === 'left') {
+        for (var l = 0; l < chunk.originalLines.length; l++) lines.push(chunk.originalLines[l]);
+        resolved++;
+      } else {
+        for (var l = 0; l < chunk.originalLines.length; l++) lines.push(chunk.originalLines[l]);
+      }
+    }
+    mergedResult.textContent = lines.join('\n');
+    var total = diffChunkIndices.length;
+    mergeStatusEl.textContent = resolved + ' / ' + total + ' resolved';
+  }
+  /* ─── Copy ─── */
+  function doCopy(btn, text) {
+    if (!navigator.clipboard || !text) return;
+    navigator.clipboard.writeText(text).then(function () {
+      var orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(function () { btn.textContent = orig; }, 1500);
+    });
+  }
+  btnCopy.addEventListener('click', function () { doCopy(btnCopy, mergedResult.textContent); });
+  sbsCopyBtn.addEventListener('click', function () { doCopy(sbsCopyBtn, sbsMergedText); });
 })();
 </script>
 </body>
