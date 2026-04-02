@@ -603,6 +603,171 @@
   function esc(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
+  /* ─── Compare (builds chunk model) ─── */
+  function compare() {
+    refreshJSONButtons();
+    var a = textA.value, b = textB.value;
+    if (!a && !b) {
+      result.innerHTML = '';
+      sbsGrid.innerHTML = '';
+      statsEl.innerHTML = '';
+      toolbar.classList.remove('visible');
+      mergedSection.classList.remove('visible');
+      navFloat.classList.remove('visible');
+      layoutToggle.classList.remove('visible');
+      chunks = [];
+      diffChunkIndices = [];
+      activeChunkPos = -1;
+      sbsMergedText = '';
+      return;
+    }
+    var linesA = a.split('\n');
+    var linesB = b.split('\n');
+    var ops = diffLines(linesA, linesB);
+    chunks = [];
+    diffChunkIndices = [];
+    activeChunkPos = -1;
+    var i = 0;
+    while (i < ops.length) {
+      if (ops[i].type === 'equal') {
+        var eq = [];
+        while (i < ops.length && ops[i].type === 'equal') {
+          eq.push(linesA[ops[i].a]);
+          i++;
+        }
+        chunks.push({ type: 'equal', lines: eq });
+      } else {
+        var dels = [], ins = [];
+        while (i < ops.length && ops[i].type !== 'equal') {
+          if (ops[i].type === 'delete') dels.push(linesA[ops[i].a]);
+          else ins.push(linesB[ops[i].b]);
+          i++;
+        }
+        diffChunkIndices.push(chunks.length);
+        chunks.push({ type: 'diff', originalLines: dels, modifiedLines: ins, resolved: null });
+      }
+    }
+    render();
+    updateToolbar();
+  }
+  function render() { renderDiff(); }
+  /* ─── Render stacked diff view ─── */
+  function renderDiff() {
+    var html = '';
+    var cntCommon = 0, cntAdded = 0, cntRemoved = 0;
+    for (var c = 0; c < chunks.length; c++) {
+      var chunk = chunks[c];
+      if (chunk.type === 'equal') {
+        for (var l = 0; l < chunk.lines.length; l++)
+          html += '<span class="line">' + esc(chunk.lines[l]) + '</span>';
+        cntCommon += chunk.lines.length;
+        continue;
+      }
+      var di = diffChunkIndices.indexOf(c);
+      var cls = 'diff-chunk';
+      if (di === activeChunkPos) cls += ' active';
+      if (chunk.resolved) cls += ' resolved';
+      html += '<div class="' + cls + '" data-chunk="' + di + '">';
+      html += '<div class="chunk-actions">';
+      if (chunk.resolved) {
+        var label = chunk.resolved === 'left' ? 'Kept original' : 'Used modified';
+        html += '<span class="resolved-label">' + label + '</span>';
+        html += '<button class="btn-accept btn-undo" data-action="undo">↩ Undo</button>';
+      } else {
+        html += '<button class="btn-accept btn-accept-left" data-action="left">← Keep Original</button>';
+        html += '<button class="btn-accept btn-accept-right" data-action="right">Use Modified →</button>';
+      }
+      html += '</div>';
+      if (chunk.resolved === 'left') {
+        for (var l = 0; l < chunk.originalLines.length; l++)
+          html += '<span class="line">' + esc(chunk.originalLines[l]) + '</span>';
+      } else if (chunk.resolved === 'right') {
+        for (var l = 0; l < chunk.modifiedLines.length; l++)
+          html += '<span class="line">' + esc(chunk.modifiedLines[l]) + '</span>';
+      } else {
+        var dels = chunk.originalLines, ins = chunk.modifiedLines;
+        var paired = Math.min(dels.length, ins.length);
+        for (var p = 0; p < paired; p++) {
+          var tokens = diffTokens(dels[p], ins[p]);
+          var lh = '';
+          for (var t = 0; t < tokens.length; t++) {
+            if (tokens[t].type === 'equal')    lh += esc(tokens[t].text);
+            else if (tokens[t].type === 'del') lh += '<span class="token-del">' + esc(tokens[t].text) + '</span>';
+            else                               lh += '<span class="token-add">' + esc(tokens[t].text) + '</span>';
+          }
+          html += '<span class="line line-mod">' + lh + '</span>';
+          cntRemoved++;
+          cntAdded++;
+        }
+        for (var d = paired; d < dels.length; d++) {
+          html += '<span class="line line-del"><span class="token-del">' + esc(dels[d]) + '</span></span>';
+          cntRemoved++;
+        }
+        for (var k = paired; k < ins.length; k++) {
+          html += '<span class="line line-add"><span class="token-add">' + esc(ins[k]) + '</span></span>';
+          cntAdded++;
+        }
+      }
+      html += '</div>';
+    }
+    result.innerHTML = html;
+    setStats(cntCommon, cntAdded, cntRemoved);
+  }
+  function setStats(common, added, removed) {
+    statsEl.innerHTML =
+      '<span class="common">Common: ' + common + '</span>' +
+      '<span class="added">Added: ' + added + '</span>' +
+      '<span class="removed">Removed: ' + removed + '</span>';
+  }
+  /* ─── Navigation ─── */
+  function updateToolbar() {
+    var has = diffChunkIndices.length > 0;
+    toolbar.classList.toggle('visible', has);
+    mergedSection.classList.toggle('visible', has);
+    layoutToggle.classList.toggle('visible', has);
+    updateNavCounter();
+  }
+  function updateNavCounter() {
+    var total = diffChunkIndices.length;
+    if (!total) return;
+    var text;
+    if (activeChunkPos < 0)
+      text = total + ' change' + (total !== 1 ? 's' : '');
+    else
+      text = (activeChunkPos + 1) + ' / ' + total;
+    navCounter.textContent = text;
+    navCounterFloat.textContent = text;
+  }
+  function goToChunk(pos) {
+    if (!diffChunkIndices.length) return;
+    if (pos < 0) pos = diffChunkIndices.length - 1;
+    if (pos >= diffChunkIndices.length) pos = 0;
+    activeChunkPos = pos;
+    if (currentLayout === 'horizontal') {
+      var old = sbsGrid.querySelectorAll('.sbs-diff-on');
+      for (var i = 0; i < old.length; i++) old[i].classList.remove('sbs-diff-on');
+      var edges = sbsGrid.querySelectorAll('[data-cid="' + pos + '"]');
+      for (var i = 0; i < edges.length; i++) edges[i].classList.add('sbs-diff-on');
+      var actRow = sbsGrid.querySelector('.sbs-actions[data-chunk="' + pos + '"]');
+      if (actRow) {
+        actRow.classList.add('sbs-diff-on');
+        actRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    } else {
+      var old = result.querySelector('.diff-chunk.active');
+      if (old) old.classList.remove('active');
+      var el = result.querySelector('[data-chunk="' + pos + '"]');
+      if (el) {
+        el.classList.add('active');
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+    updateNavCounter();
+  }
+  function prevChunk() { goToChunk(activeChunkPos <= 0 ? diffChunkIndices.length - 1 : activeChunkPos - 1); }
+  function nextChunk() { goToChunk(activeChunkPos < 0 ? 0 : (activeChunkPos + 1) % diffChunkIndices.length); }
+  btnPrev.addEventListener('click', prevChunk);
+  btnNext.addEventListener('click', nextChunk);
 })();
 </script>
 </body>
