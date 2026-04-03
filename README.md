@@ -19,6 +19,10 @@ Open `compare.html` in any browser. Paste text on both sides. That's it.
 
 ## Screenshots
 
-![JSON format comparison](img/json_format_compare.png)
-
 ![Text comparison](img/text_compare.png)
+
+![Accept or reject each change](img/choose_peer.png)
+
+![Merged result](img/merged_result.png)
+
+![JSON format comparison](img/json_format_compare.png)
