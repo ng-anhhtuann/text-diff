@@ -650,7 +650,15 @@
     render();
     updateToolbar();
   }
-  function render() { renderDiff(); updateMergedResult(); }
+  /* ─── Unified render dispatcher ─── */
+  function render() {
+    if (currentLayout === 'horizontal') {
+      renderSideBySide();
+    } else {
+      renderDiff();
+      updateMergedResult();
+    }
+  }
   /* ─── Render stacked diff view ─── */
   function renderDiff() {
     var html = '';
@@ -712,6 +720,118 @@
     }
     result.innerHTML = html;
     setStats(cntCommon, cntAdded, cntRemoved);
+  }
+  /* ─── Render side-by-side view ─── */
+  function sbsRow(lnL, htmlL, clsL, lnR, htmlR, clsR, cid, isActive, isDone) {
+    var hasChunk = cid >= 0;
+    var edgeCls = '', cidAttr = '';
+    if (hasChunk) {
+      edgeCls = ' sbs-edge';
+      if (isActive) edgeCls += ' sbs-diff-on';
+      else if (isDone) edgeCls += ' sbs-diff-done';
+      cidAttr = ' data-cid="' + cid + '"';
+    }
+    return '<span class="sbs-ln' + edgeCls + '"' + cidAttr + '>' + lnL + '</span>' +
+           '<span class="sbs-cell' + (clsL ? ' ' + clsL : '') + '">' + htmlL + '</span>' +
+           '<span class="sbs-ln sbs-ln-r">' + lnR + '</span>' +
+           '<span class="sbs-cell' + (clsR ? ' ' + clsR : '') + '">' + htmlR + '</span>';
+  }
+  function renderSideBySide() {
+    var html = '';
+    var leftLn = 1, rightLn = 1;
+    var cntCommon = 0, cntAdded = 0, cntRemoved = 0;
+    var resolvedCount = 0;
+    var merged = [];
+    for (var c = 0; c < chunks.length; c++) {
+      var chunk = chunks[c];
+      if (chunk.type === 'equal') {
+        for (var l = 0; l < chunk.lines.length; l++) {
+          var content = esc(chunk.lines[l]);
+          html += sbsRow(leftLn++, content, '', rightLn++, content, '', -1, false, false);
+          merged.push(chunk.lines[l]);
+        }
+        cntCommon += chunk.lines.length;
+        continue;
+      }
+      var di = diffChunkIndices.indexOf(c);
+      var isActive = di === activeChunkPos;
+      var isDone = !!chunk.resolved;
+      var actCls = 'sbs-actions';
+      if (isActive) actCls += ' sbs-diff-on';
+      else if (isDone) actCls += ' sbs-diff-done';
+      html += '<div class="' + actCls + '" data-chunk="' + di + '">';
+      if (chunk.resolved) {
+        var label = chunk.resolved === 'left' ? 'Kept original' : 'Used modified';
+        html += '<span class="resolved-label">' + label + '</span>';
+        html += '<button class="btn-accept btn-undo" data-action="undo">↩ Undo</button>';
+        resolvedCount++;
+      } else {
+        html += '<button class="btn-accept btn-accept-left" data-action="left">← Keep Original</button>';
+        html += '<button class="btn-accept btn-accept-right" data-action="right">Use Modified →</button>';
+      }
+      html += '</div>';
+      var leftRows = [], rightRows = [];
+      if (chunk.resolved === 'left') {
+        for (var l = 0; l < chunk.originalLines.length; l++) {
+          var ct = esc(chunk.originalLines[l]);
+          leftRows.push({ h: ct, c: '' });
+          rightRows.push({ h: ct, c: '' });
+          merged.push(chunk.originalLines[l]);
+        }
+      } else if (chunk.resolved === 'right') {
+        for (var l = 0; l < chunk.modifiedLines.length; l++) {
+          var ct = esc(chunk.modifiedLines[l]);
+          leftRows.push({ h: ct, c: '' });
+          rightRows.push({ h: ct, c: '' });
+          merged.push(chunk.modifiedLines[l]);
+        }
+      } else {
+        var dels = chunk.originalLines, ins = chunk.modifiedLines;
+        var paired = Math.min(dels.length, ins.length);
+        for (var p = 0; p < paired; p++) {
+          var tokens = diffTokens(dels[p], ins[p]);
+          var lh = '';
+          for (var t = 0; t < tokens.length; t++) {
+            if (tokens[t].type === 'equal') lh += esc(tokens[t].text);
+            else if (tokens[t].type === 'del') lh += '<span class="token-del">' + esc(tokens[t].text) + '</span>';
+            else lh += '<span class="token-add">' + esc(tokens[t].text) + '</span>';
+          }
+          leftRows.push({ h: lh, c: 'line-mod' });
+          cntRemoved++;
+          cntAdded++;
+        }
+        for (var d = paired; d < dels.length; d++) {
+          leftRows.push({ h: '<span class="token-del">' + esc(dels[d]) + '</span>', c: 'line-del' });
+          cntRemoved++;
+        }
+        for (var k = paired; k < ins.length; k++) {
+          leftRows.push({ h: '<span class="token-add">' + esc(ins[k]) + '</span>', c: 'line-add' });
+          cntAdded++;
+        }
+        for (var l = 0; l < dels.length; l++) {
+          rightRows.push({ h: esc(dels[l]), c: '' });
+          merged.push(dels[l]);
+        }
+      }
+      var maxRows = Math.max(leftRows.length, rightRows.length);
+      for (var r = 0; r < maxRows; r++) {
+        var lr = r < leftRows.length ? leftRows[r] : null;
+        var rr = r < rightRows.length ? rightRows[r] : null;
+        html += sbsRow(
+          lr ? leftLn++ : '',
+          lr ? lr.h : '',
+          lr ? lr.c : 'sbs-spacer',
+          rr ? rightLn++ : '',
+          rr ? rr.h : '',
+          rr ? rr.c : 'sbs-spacer',
+          di, isActive, isDone
+        );
+      }
+    }
+    sbsGrid.innerHTML = html;
+    sbsMergedText = merged.join('\n');
+    setStats(cntCommon, cntAdded, cntRemoved);
+    sbsMergeStatusEl.textContent = resolvedCount + ' / ' + diffChunkIndices.length + ' resolved';
   }
   function setStats(common, added, removed) {
     statsEl.innerHTML =
@@ -842,6 +962,52 @@
   }
   btnCopy.addEventListener('click', function () { doCopy(btnCopy, mergedResult.textContent); });
   sbsCopyBtn.addEventListener('click', function () { doCopy(sbsCopyBtn, sbsMergedText); });
+  /* ─── Floating nav ─── */
+  btnPrevFloat.addEventListener('click', prevChunk);
+  btnNextFloat.addEventListener('click', nextChunk);
+  function updateFloatingNav() {
+    if (!diffChunkIndices.length) {
+      navFloat.classList.remove('visible');
+      return;
+    }
+    var toolbarRect = toolbar.getBoundingClientRect();
+    var viewEl = currentLayout === 'horizontal' ? sbsView : result;
+    var viewRect = viewEl.getBoundingClientRect();
+    var shouldFloat = toolbarRect.bottom < 0 && viewRect.bottom > 60;
+    navFloat.classList.toggle('visible', shouldFloat);
+    if (shouldFloat) {
+      navFloat.style.left = viewRect.left + 'px';
+    }
+  }
+  window.addEventListener('scroll', updateFloatingNav, { passive: true });
+  window.addEventListener('resize', updateFloatingNav, { passive: true });
+  /* ─── Layout toggle ─── */
+  var currentLayout = 'vertical';
+  try { currentLayout = localStorage.getItem('diffLayout') || 'vertical'; } catch (e) {}
+  function setLayout(layout) {
+    currentLayout = layout;
+    try { localStorage.setItem('diffLayout', layout); } catch (e) {}
+    resultContainer.classList.toggle('horizontal', layout === 'horizontal');
+    var btns = layoutToggle.querySelectorAll('.btn-layout');
+    for (var i = 0; i < btns.length; i++)
+      btns[i].classList.toggle('active', btns[i].getAttribute('data-layout') === layout);
+    if (chunks.length) render();
+  }
+  layoutToggle.addEventListener('click', function (e) {
+    var btn = e.target;
+    if (!btn.classList.contains('btn-layout') || btn.classList.contains('active')) return;
+    setLayout(btn.getAttribute('data-layout'));
+  });
+  setLayout(currentLayout);
+  /* ─── Keyboard shortcuts ─── */
+  document.addEventListener('keydown', function (e) {
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+    if (e.key === 'F7') {
+      e.preventDefault();
+      if (e.shiftKey) prevChunk();
+      else nextChunk();
+    }
+  });
 })();
 </script>
 </body>
